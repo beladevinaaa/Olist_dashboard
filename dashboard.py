@@ -3,93 +3,108 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import streamlit as st
 
-# Set style seaborn
+# Set style seaborn agar grafik terlihat profesional
 sns.set(style='dark')
 
-# 1. Menyiapkan Helper Functions
-def create_bystate_df(df):
-    bystate_df = df.groupby(by="customer_state").customer_id.nunique().reset_index()
-    bystate_df.rename(columns={"customer_id": "customer_count"}, inplace=True)
-    return bystate_df
-
-def create_top_products_df(df):
-    top_products_df = df.groupby(by="product_category_name").order_id.nunique().reset_index()
-    top_products_df.rename(columns={"order_id": "product_count"}, inplace=True)
-    top_products_df = top_products_df.sort_values(by="product_count", ascending=False).head(10)
-    return top_products_df
-
-# 2. Load Data
+# 1. Load Data
+# Pastikan file all_data.csv berada di folder yang sama dengan file dashboard.py ini
 all_df = pd.read_csv("all_data.csv")
 
-# 3. Inisialisasi Session State (Biar menu yang diklik tersimpan lokasinya)
-if 'menu_aktif' not in st.session_state:
-    st.session_state.menu_aktif = "Demografi"
+# Pastikan kolom tanggal benar-benar tipe datetime agar filter tanggal berfungsi
+all_df["order_purchase_timestamp"] = pd.to_datetime(all_df["order_purchase_timestamp"])
 
-# 4. Sidebar Navigation (Style List Menu)
+# 2. Sidebar - Fitur Interaktif (Filtering)
 with st.sidebar:
     st.image("https://github.com/dicodingacademy/assets/raw/main/logo.png")
-    st.markdown("## 🧭 Main Menu")
+    st.header("⚙️ Filter Eksplorasi")
     
-    # Membuat tombol yang berfungsi sebagai List Menu
-    if st.button("📊 Demografi Pelanggan", use_container_width=True):
-        st.session_state.menu_aktif = "Demografi"
-        
-    if st.button("📦 Performa Produk", use_container_width=True):
-        st.session_state.menu_aktif = "Produk"
+    # FILTER 1: Rentang Waktu (Date Range) - Memenuhi kriteria SMART (Time-bound)
+    min_date = all_df["order_purchase_timestamp"].min()
+    max_date = all_df["order_purchase_timestamp"].max()
     
-    st.markdown("---")
-    st.markdown("### Profile")
-    st.markdown("**Bela Devina Ainiyah Widodo**")
-    st.caption("Sistem Informasi - UNESA")
+    try:
+        start_date, end_date = st.date_input(
+            label='Rentang Waktu Analisis',
+            min_value=min_date,
+            max_value=max_date,
+            value=[min_date, max_date]
+        )
+    except ValueError:
+        st.error("Silakan pilih rentang tanggal yang valid.")
+        st.stop()
 
-# 5. Header Utama
+    # FILTER 2: Negara Bagian (State) - Memungkinkan user manipulasi data langsung
+    states = sorted(all_df["customer_state"].dropna().astype(str).unique())
+    selected_states = st.multiselect(
+        label="Pilih Negara Bagian (State):",
+        options=states,
+        default=states
+    )
+
+# 3. Menghubungkan Filter ke Data Utama (Data Manipulation)
+# main_df akan berubah secara dinamis setiap kali filter di sidebar diubah
+main_df = all_df[
+    (all_df["order_purchase_timestamp"] >= pd.to_datetime(start_date)) & 
+    (all_df["order_purchase_timestamp"] <= pd.to_datetime(end_date)) &
+    (all_df["customer_state"].isin(selected_states))
+]
+
+# 4. Header Utama
 st.header('Olist E-Commerce Analysis Dashboard 🛍️')
+st.markdown(f"**Menampilkan Data Periode:** {start_date} s/d {end_date}")
 
-# 6. Logika Konten Berdasarkan Tombol yang Diklik
-if st.session_state.menu_aktif == "Demografi":
-    st.subheader("📍 Customer Distribution by State")
-    
-    bystate_df = create_bystate_df(all_df)
-    chart_data = bystate_df.sort_values(by="customer_count", ascending=False).head(10)
-    
+# --- VISUALISASI 1: Demografi Pelanggan ---
+st.subheader("📍 Customer Demographics (2016-2018)")
+bystate_df = main_df.groupby("customer_state").customer_id.nunique().reset_index().sort_values(by="customer_id", ascending=False).head(10)
+
+if not bystate_df.empty:
     fig, ax = plt.subplots(figsize=(12, 6))
-    sns.barplot(
-        x="customer_count", 
-        y="customer_state",
-        data=chart_data,
-        palette="viridis",
-        ax=ax
-    )
-    ax.set_title("10 Negara Bagian dengan Pelanggan Terbanyak", fontsize=15)
-    ax.set_ylabel(None)
+    sns.barplot(x="customer_id", y="customer_state", data=bystate_df, palette="viridis", ax=ax)
+    ax.set_title(f"10 Negara Bagian dengan Pelanggan Terbanyak", fontsize=15)
     ax.set_xlabel("Jumlah Pelanggan")
-    st.pyplot(fig)
-
-    with st.expander("Lihat Insight"):
-        st.write("Wilayah Sao Paulo (SP) mendominasi pasar secara signifikan.")
-
-elif st.session_state.menu_aktif == "Produk":
-    st.subheader("📦 Top Selling Product Categories")
-    
-    top_products_df = create_top_products_df(all_df)
-    
-    fig, ax = plt.subplots(figsize=(12, 6))
-    sns.barplot(
-        x="product_count", 
-        y="product_category_name", 
-        data=top_products_df, 
-        palette="magma", 
-        ax=ax
-    )
-    ax.set_title("10 Kategori Produk Paling Banyak Terjual", fontsize=15)
     ax.set_ylabel(None)
-    ax.set_xlabel("Jumlah Pesanan")
     st.pyplot(fig)
 
-    with st.expander("Lihat Insight"):
-        top_cat = top_products_df.iloc[0]['product_category_name']
-        st.write(f"Kategori **{top_cat}** menjadi pemenang di pasar Olist. Kategori Cama, Mesa e Banho mendominasi penjualan karena sifat produknya yang merupakan kebutuhan pokok rumah tangga dengan risiko pengiriman rendah. Stabilitas permintaan di kategori ini menjadikannya kontributor utama pendapatan platform Olist sepanjang periode analisis")
+    # REVISI INSIGHT DINAMIS 1
+    with st.expander("Lihat Insight Demografi Pelanggan"):
+        top_state = bystate_df.iloc[0]['customer_state']
+        st.write(f"""
+        **Analisis Geografis (2016-2018):**
+        * Berdasarkan filter yang Anda pilih, **{top_state}** (Sao Paulo) muncul sebagai kontributor pelanggan terbesar. Hal ini mengonfirmasi sentralisasi ekonomi e-commerce Brazil masih berada di wilayah Tenggara.
+        * Dominasi ini menunjukkan infrastruktur logistik di wilayah tersebut sudah matang, sehingga penetrasi pasar digital jauh lebih cepat dibandingkan wilayah lainnya.
+        * **Saran Strategis:** Olist disarankan melakukan subsidi ongkos kirim ke wilayah di luar {top_state} untuk mendorong pemerataan pasar dan mengurangi ketergantungan pada satu wilayah saja.
+        """)
+else:
+    st.warning("Data tidak tersedia untuk filter wilayah ini.")
 
-# Footer
+# --- VISUALISASI 2: Performa Produk ---
+st.subheader("📦 Best Performing Product (2016-2018)")
+top_products_df = main_df.groupby("product_category_name").order_id.nunique().reset_index().sort_values(by="order_id", ascending=False).head(10)
+
+if not top_products_df.empty:
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.barplot(x="order_id", y="product_category_name", data=top_products_df, palette="magma", ax=ax)
+    ax.set_title("10 Kategori Produk dengan Penjualan Tertinggi", fontsize=15)
+    ax.set_xlabel("Jumlah Pesanan")
+    ax.set_ylabel(None)
+    st.pyplot(fig)
+
+    # REVISI INSIGHT DINAMIS 2
+    with st.expander("Lihat Insight Performa Produk"):
+        top_cat = top_products_df.iloc[0]['product_category_name']
+        st.write(f"""
+        **Analisis Performa Produk (2016-2018):**
+        * Kategori **{top_cat}** (Bed, Bath, Table) menjadi tulang punggung transaksi dalam rentang waktu terpilih.
+        * Keberhasilan kategori ini menunjukkan bahwa konsumen memercayai Olist untuk produk kebutuhan rumah tangga esensial yang memiliki risiko pengiriman rendah (tidak mudah pecah dan ukuran standar).
+        * **Saran Strategis:** Pastikan ketersediaan stok (*safety stock*) pada kategori {top_cat} tetap terjaga. Selain itu, perusahaan bisa melakukan *cross-selling* dengan kategori Health & Beauty untuk meningkatkan nilai belanja per transaksi.
+        """)
+else:
+    st.info("Data produk tidak tersedia untuk rentang waktu ini.")
+
+# 7. Footer & Identity
 st.markdown("---")
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Profile")
+st.sidebar.markdown("**Bela Devina Ainiyah Widodo**")
+st.sidebar.caption("Sistem Informasi - UNESA")
 st.caption('Copyright (c) Bela Devina 2026')
